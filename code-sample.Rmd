@@ -247,7 +247,7 @@ precip_mean_df <- velox(precip_anom)$extract(sp = usa_regions, fun = function(x)
     as_tibble() 
 # Rename to the raster layer names
 colnames(precip_mean_df) <- c('ID_sp', names(precip_anom))
-# Clean up the dataframe and create a 2-year rolling average
+# Clean up the dataframe and create a 3-year rolling average
 precip_roll_mean_df <- precip_mean_df %>%
   mutate(regions = as.data.frame(usa_regions)$regions) %>%
   gather(key = key, value = precip_mean, -ID_sp, -regions) %>%
