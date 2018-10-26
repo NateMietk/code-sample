@@ -1,0 +1,183 @@
+---
+title: "code-sample"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## General outline
+This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occuring across space and time, and how different those deviations are from the long term mean.  
+
+First we need to setup our environment
+
+```{r results='hide', message=FALSE, warning=FALSE}
+packages <- c("tidyverse", "magrittr", "raster", "RCurl", "sf", "assertthat", 'lubridate', 'ncdf4',
+              'RColorBrewer', 'rasterVis', 'zoo')
+if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  install.packages(setdiff(packages, rownames(installed.packages())))  
+  lapply(packages, library, character.only = TRUE, quietly = TRUE) 
+} else {
+  lapply(packages, library, character.only = TRUE, quietly = TRUE) 
+}
+```
+
+Now lets create some folders to store our raw and processed data in...
+
+```{r results='hide', message=FALSE, warning=FALSE}
+prefix <- "data"
+raw_dir <- file.path(prefix, "raw")
+us_dir <- file.path(raw_dir, "cb_2016_us_state_20m")
+climate_dir <- file.path(raw_dir, "climate")
+# Check if directory exists for all variable aggregate outputs, if not then create
+var_dir <- list(prefix, raw_dir, us_dir, climate_dir)
+lapply(var_dir, function(x) if(!dir.exists(x)) dir.create(x, showWarnings = FALSE))
+
+```
+
+Let's define some small functions that we can call to make things more efficient and readable throughout the code.
+
+```{r}
+# Create some simple functions to use later in the code
+
+# Download the data
+download_data <- function(url, dir) {
+  file_extension <- url %>%
+    basename %>%
+    strsplit(., '[.]') %>%
+    unlist
+  file_extension_name <- file_extension[1]
+  file_extension_ext <- file_extension[2]
+  
+  download.file(url, 
+                destfile = file.path(dir, paste0(file_extension_name, ".", file_extension_ext)))
+  if(file_extension_ext == 'zip'){
+    unzip(paste0(dir, ".", file_extension_ext),
+        exdir = dir)
+  unlink(paste0(dir, ".", file_extension_ext))
+  }
+}
+
+## Compute anomaly using monthly grouping with ave  
+anomaly <- function(x, y = var_names){
+    ## Create a monthly climatology
+    mm <- ave(x, month(y), FUN = mean)
+    ## Monthly standard deviation across the climatology
+    msd <- ave(x, month(y), FUN = sd)
+    ## Create and return the monthly anomaly
+    (x - mm)/msd
+}
+
+# We will be doing some plotting, so here we can define our base plots
+
+# A function for our simple spatial plot
+raster_plot <- function(input_series, layer_number, title) {
+  rasterVis::levelplot(input_series,
+                                       layers = layer_number,
+                            margin = list(FUN = median), 
+                            par.settings = list(
+                              axis.line = list(col = 'transparent')
+                            ),
+                            scales = list(draw = FALSE),
+                            colorkey = TRUE, region = TRUE,
+                            col.regions = colorRampPalette(brewer.pal(9, 'RdYlBu')),
+                            xlab.top = title) +
+  layer(sp.polygons(as(usa, 'Spatial'), lwd = 2)) # Overlay the usa states
+}
+
+# A function that defines our hovmoller plot
+hovmoller_plot <- function(input_series, legend_range) {
+  hovmoller(input_series,
+          at = legend_range,
+          panel = panel.levelplot.raster,
+          interpolate = TRUE,
+          yscale.components = yscale.raster.subticks,
+          par.settings = BuRdTheme)
+}
+```
+
+Now we can download the two datasets needed for this analysis
+``` {r}
+# USA states shapefile
+# Make sure we haven't alredy downloaded the data
+if(!file.exists(file.path(us_dir, "cb_2016_us_state_20m.shp"))) { 
+  download_data("https://www2.census.gov/geo/tiger/GENZ2016/shp/cb_2016_us_state_20m.zip", 
+                us_dir)
+  }
+
+# Monthly Precipitation from 1979-2017
+# Make sure we haven't alredy downloaded the data
+if(!file.exists(file.path(climate_dir, 'pr_gridMET.nc'))) { 
+  download_data("https://www.northwestknowledge.net/metdata/data/monthly/pr_gridMET.nc", 
+                climate_dir)
+  }
+```
+
+Now that the data has been downloaded let's start processing!
+```{r}
+# Define our spatial projection
+proj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
+# Opening and cleaning the states layer
+usa <- sf::st_read(file.path(us_dir, "cb_2016_us_state_20m.shp")) %>%
+  st_transform(proj) %>% #transform to match raster projection
+  rename_all(tolower) # rename all fields to lowercase for ease of coding later
+
+# Open the NetCDF file
+nc <- nc_open(file.path(climate_dir, 'pr_gridMET.nc'))
+# Unpack and transform the NetCDF file
+unpacked_netcdf <- attributes(nc$var)$names %>%
+  ncvar_get(nc, .) %>%
+  aperm(., c(2,3,1))
+
+# Create a raster time series stack that we can use for analysis
+precip_series <- brick(unpacked_netcdf, crs= proj)
+extent(precip_series) <- c(-124.793, -67.043, 25.04186, 49.41686)
+precip_series <- precip_series %>%
+  mask(as(usa, 'Spatial')) # mask out to just the conterminous US 
+
+# Add time to the layer name
+idx <- seq(as.Date('1979-01-01'), as.Date('2017-12-01'), by='month')
+var_names <- as.yearmon(idx)
+precip_series <- setZ(precip_series, var_names)
+names(precip_series) <- as.character(var_names)
+
+# Create precipitation anomalies
+# This takes a while so go get some coffee!
+precip_anom <- calc(precip_series, anomaly)
+precip_anom <- setZ(precip_anom, var_names)
+```
+
+Now that all of the data are processed, how do those time series look spatially and temporally ?
+
+#### Precipitation for May in 1979 vs 2017
+``` {r}
+may_1979 <- raster_plot(input_series = precip_series, layer_number = 5, 
+                        title = 'Precipitation for May 1979 (in mm)')
+
+may_2017 <- raster_plot(input_series = precip_series, layer_number = 461, 
+                        title = 'Precipitation for May 2017 (in mm)')
+```
+You will notice that that there are differences in precipitation for the May months of 1979 and 2017, but this could be due to seasonality or external climatological forcings, like El Nino events. 
+
+#### The time series from 1979-2017
+```{r}
+hovmoller_plot(input_series = precip_series, legend_range = seq(0, 1000, 100)) 
+```
+Similar to the plots of the month of May, this hovmoller plot shows differences in precipitation over space and time, but there may be a lot of seasonality embedded in the time series.  We will now explore the precipitation anomalies to see if those differences were from seasonal effects or if they are in fact part of a longer term trend of precipitation change.
+
+#### How anomalous was the precipitation in May 1979 vs 2017?
+```{r}
+may_1979_anom <- raster_plot(input_series = precip_anom, layer_number = 5, 
+                        title = 'Precipitation anomalies for May 1979 (in mm)')
+
+may_2017_anom <- raster_plot(input_series = precip_anom, layer_number = 461, 
+                        title = 'Precipitation anomalies for May 2017 (in mm)')
+grid.arrange(may_1979_anom, may_2017_anom, ncol=1)
+```
+
+#### Precipitation anomalies from 1979-2017
+```{r}
+hovmoller_plot(input_series = precip_anom, legend_range = seq(-5, 5, 0.5)) 
+```
+
