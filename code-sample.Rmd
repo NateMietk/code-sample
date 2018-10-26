@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## General outline
-This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occurring across space and time, and how different those deviations are from the long term mean. At the very end we will extract the mean raw precipitation and precipitation anomalies for each state and create a series of time series plots.
+This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data into precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occurring across space and time, and how different those deviations are from the long term mean. At the very end we will extract the mean precipitation anomalies across defined regions in the conterminous US and create a series of time series plots.
 
 First we need to setup our environment
 
@@ -176,7 +176,7 @@ unpacked_netcdf <- attributes(nc$var)$names %>%
 
 # Create a raster time series stack that we can use for analysis
 precip_series <- brick(unpacked_netcdf, crs= proj)
-extent(precip_series) <- c(-124.793, -67.043, 25.04186, 49.41686)
+extent(precip_series) <- c(-124.793, -67.043, 25.04186, 49.41686) #set spatial extents
 precip_series <- precip_series %>%
   mask(as(usa, 'Spatial')) # mask out to just the conterminous US 
 
