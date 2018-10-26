@@ -10,7 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## General outline
-This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occuring across space and time, and how different those deviations are from the long term mean. At the very end we will extract the mean raw precipitation and precipitation anomalies for each state and create a series of time series plots.
+This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occurring across space and time, and how different those deviations are from the long term mean. At the very end we will extract the mean raw precipitation and precipitation anomalies for each state and create a series of time series plots.
 
 First we need to setup our environment
 
@@ -129,7 +129,7 @@ theme_pub <- function(base_size=11, base_family="") {
 }
 ```
 
-Now we can download the two datasets needed for this analysis
+Now we can download the two data sets needed for this analysis
 ``` {r}
 # USA states shapefile
 # Make sure we haven't alredy downloaded the data
@@ -160,7 +160,7 @@ usa <- sf::st_read(file.path(us_dir, "cb_2016_us_state_20m.shp")) %>%
                                    ifelse(stusps %in% c('TX', 'OK', 'KS', 'SD', 'ND', 'NE'), 'Central',
                                            ifelse(stusps %in% c('CO', 'NM', 'AZ', 'UT', 'NV', 'CA'), 'South West',
                                                    ifelse(stusps %in% c('OR', 'WA', 'ID', 'MT', 'WY'), 'North West', NA))))))
-# Dissolve by regions
+# Dissolve the USA by regions
 usa_regions <- usa %>%
   group_by(regions) %>%
   summarise() %>%
@@ -234,11 +234,11 @@ grid.arrange(may_1979_anom, may_2017_anom, ncol = 1)
 hovmoller_plot(input_series = precip_anom, legend_range = seq(-5, 5, 0.5)) 
 ```
 
-From the comparisions it is clear that the precipitation anomalies are better at conveying precipitation trends across space and time. 
+From the comparisons it is clear that the precipitation anomalies are better at conveying precipitation trends across space and time. 
 
 #### Now lets extract the mean precipitation anomalies per region for just the summer months using a 3 year running mean.
 ```{r}
-#Extract the median precipitation per state
+#Extract the mean precipitation per state
 precip_mean_df <- velox(precip_anom)$extract(sp = usa_regions, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
     as_tibble() 
 # Rename to the raster layer names
