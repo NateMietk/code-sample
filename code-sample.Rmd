@@ -18,9 +18,12 @@ First we need to setup our environment
 packages <- c("tidyverse", "magrittr", "raster", "RCurl", "sf", "assertthat", 'lubridate', 'ncdf4',
               'RColorBrewer', 'rasterVis', 'zoo', 'gridExtra', 'parallel', 'doParallel', 'pbapply', 'velox')
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
+  # automatically installs packages if not found
   install.packages(setdiff(packages, rownames(installed.packages())))  
+  # loads the library once installed
   lapply(packages, library, character.only = TRUE, quietly = TRUE) 
 } else {
+  # if package is already install this loads it
   lapply(packages, library, character.only = TRUE, quietly = TRUE) 
 }
 ```
@@ -34,10 +37,10 @@ us_dir <- file.path(raw_dir, "cb_2016_us_state_20m")
 climate_dir <- file.path(raw_dir, "climate")
 processed_dir <- file.path(prefix, "processed")
 processed_climate <- file.path(processed_dir, 'climate')
+
 # Check if directory exists for all variable aggregate outputs, if not then create
 var_dir <- list(prefix, raw_dir, us_dir, climate_dir, processed_dir, processed_climate)
 lapply(var_dir, function(x) if(!dir.exists(x)) dir.create(x, showWarnings = FALSE))
-
 ```
 
 Let's define some small functions that we can call to make things more efficient and readable throughout the code.
@@ -47,12 +50,13 @@ Let's define some small functions that we can call to make things more efficient
 
 # Download the data
 download_data <- function(url, dir) {
+  # because some files have a 'zip' extension while others dont we have to automatically use the native extension
   file_extension <- url %>%
     basename %>%
     strsplit(., '[.]') %>%
     unlist
-  file_extension_name <- file_extension[1]
-  file_extension_ext <- file_extension[2]
+  file_extension_name <- file_extension[1] # get the file name
+  file_extension_ext <- file_extension[2] # get the extension name
   
   download.file(url, 
                 destfile = file.path(dir, paste0(file_extension_name, ".", file_extension_ext)))
@@ -98,7 +102,7 @@ hovmoller_plot <- function(input_series, legend_range) {
           par.settings = BuRdTheme)
 }
 
-# Theme for plotting 
+# Theme for plotting our time series in ggplot
 theme_pub <- function(base_size=11, base_family="") {
   library(grid)
   library(ggthemes)
@@ -200,7 +204,7 @@ if(!file.exists(file.path(processed_climate, 'precip_anom.tif'))) {
   }
 ```
 
-Now that all of the data are processed, how do those time series look spatially and temporally ?
+Now that all of the data are processed, how do those time series look spatially and temporally?
 
 #### Precipitation for May in 1979 vs 2017
 ``` {r}
