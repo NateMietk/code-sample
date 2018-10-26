@@ -8,13 +8,13 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## General outline
-This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occuring across space and time, and how different those deviations are from the long term mean.  
+This code sample is intended to be a reproducible example of downloading, processing, and visualizing climate time series across the conterminous US.  In this code we will explore a monthly time series of precipitation data from the GridMET data product (http://www.climatologylab.org/gridmet.html). We will transform these raw precipitation data in precipitation anomalies, which is just a simple deviation from the long term mean. By transforming into anomalies we can better understand how much increase of decrease precipitation is occuring across space and time, and how different those deviations are from the long term mean. At the very end we will extract the mean raw precipitation and precipitation anomalies for each state and create a series of time series plots.
 
 First we need to setup our environment
 
 ```{r results='hide', message=FALSE, warning=FALSE}
 packages <- c("tidyverse", "magrittr", "raster", "RCurl", "sf", "assertthat", 'lubridate', 'ncdf4',
-              'RColorBrewer', 'rasterVis', 'zoo')
+              'RColorBrewer', 'rasterVis', 'zoo', 'gridExtra', 'parallel', 'doParallel', 'pbapply', 'velox')
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
   install.packages(setdiff(packages, rownames(installed.packages())))  
   lapply(packages, library, character.only = TRUE, quietly = TRUE) 
@@ -30,8 +30,10 @@ prefix <- "data"
 raw_dir <- file.path(prefix, "raw")
 us_dir <- file.path(raw_dir, "cb_2016_us_state_20m")
 climate_dir <- file.path(raw_dir, "climate")
+processed_dir <- file.path(prefix, "processed")
+processed_climate <- file.path(processed_dir, 'climate')
 # Check if directory exists for all variable aggregate outputs, if not then create
-var_dir <- list(prefix, raw_dir, us_dir, climate_dir)
+var_dir <- list(prefix, raw_dir, us_dir, climate_dir, processed_dir, processed_climate)
 lapply(var_dir, function(x) if(!dir.exists(x)) dir.create(x, showWarnings = FALSE))
 
 ```
@@ -60,29 +62,27 @@ download_data <- function(url, dir) {
 }
 
 ## Compute anomaly using monthly grouping with ave  
-anomaly <- function(x, y = var_names){
-    ## Create a monthly climatology
-    mm <- ave(x, month(y), FUN = mean)
-    ## Monthly standard deviation across the climatology
-    msd <- ave(x, month(y), FUN = sd)
-    ## Create and return the monthly anomaly
-    (x - mm)/msd
+anomaly <- function(series, month_names) {
+  ## Create a monthly climatology
+  mm <- ave(series, month(month_names), FUN = mean)
+  ## Monthly standard deviation across the climatology
+  msd <- ave(series, month(month_names), FUN = sd)
+  ## Create and return the monthly anomaly
+  (series - mm)/msd
 }
-
+            
 # We will be doing some plotting, so here we can define our base plots
-
 # A function for our simple spatial plot
 raster_plot <- function(input_series, layer_number, title) {
   rasterVis::levelplot(input_series,
-                                       layers = layer_number,
-                            margin = list(FUN = median), 
-                            par.settings = list(
-                              axis.line = list(col = 'transparent')
-                            ),
-                            scales = list(draw = FALSE),
-                            colorkey = TRUE, region = TRUE,
-                            col.regions = colorRampPalette(brewer.pal(9, 'RdYlBu')),
-                            xlab.top = title) +
+                        layers = layer_number,
+                        margin = list(FUN = median), 
+                        par.settings = list(
+                          axis.line = list(col = 'transparent')),
+                        scales = list(draw = FALSE),
+                        colorkey = TRUE, region = TRUE,
+                        col.regions = colorRampPalette(brewer.pal(9, 'RdYlBu')),
+                        xlab.top = title) +
   layer(sp.polygons(as(usa, 'Spatial'), lwd = 2)) # Overlay the usa states
 }
 
@@ -94,6 +94,36 @@ hovmoller_plot <- function(input_series, legend_range) {
           interpolate = TRUE,
           yscale.components = yscale.raster.subticks,
           par.settings = BuRdTheme)
+}
+
+# Theme for plotting 
+theme_pub <- function(base_size=11, base_family="") {
+  library(grid)
+  library(ggthemes)
+  (theme_foundation(base_size=base_size, base_family=base_family)
+    + theme(plot.title = element_text(hjust = 0.05, size = 13),
+            
+            panel.border = element_rect(colour = NA),
+            panel.background = element_rect(colour = NA),
+            panel.grid.major = element_line(colour="#f0f0f0"),
+            panel.grid.minor = element_blank(),
+            plot.background = element_rect(colour = NA),
+            
+            axis.line = element_line(colour="black"),
+            axis.ticks = element_line(),
+            
+            legend.title = element_text(size=11),
+            legend.position = "right",
+            legend.text = element_text(size=11),
+            legend.direction = "vertical",
+            legend.key = element_rect(colour = "transparent", fill = "white"),
+            
+            strip.background=element_rect(colour=NA),
+            strip.text.x = element_text(size = 10),
+            
+            axis.title = element_text(size = 11),
+            axis.text.x = element_text(size = 10, angle = 65, hjust = 1),
+            axis.text.y = element_text(size = 11)))
 }
 ```
 
@@ -121,7 +151,18 @@ proj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
 # Opening and cleaning the states layer
 usa <- sf::st_read(file.path(us_dir, "cb_2016_us_state_20m.shp")) %>%
   st_transform(proj) %>% #transform to match raster projection
-  rename_all(tolower) # rename all fields to lowercase for ease of coding later
+  rename_all(tolower) %>% # rename all fields to lowercase for ease of coding later
+  dplyr::filter(!stusps %in% c("HI", "AK", "PR")) %>%
+  mutate(regions = ifelse(stusps %in% c("FL", "GA", "AL", "MS", "LA", "AR", "TN", "NC", "SC"), "South East",
+                           ifelse(stusps %in% c("ME", "NH", "VT", "NY", "PA", "DE", "NJ", "RI", "CT", "MI", "MD", "MA", "WI", "IL", "IN", "OH", "WV", "VA", "KY", "MO", "MN", 'DC', 'IA'), "North East",
+                                   ifelse(stusps %in% c('TX', 'OK', 'KS', 'SD', 'ND', 'NE'), 'Central',
+                                           ifelse(stusps %in% c('CO', 'NM', 'AZ', 'UT', 'NV', 'CA'), 'South West',
+                                                   ifelse(stusps %in% c('OR', 'WA', 'ID', 'MT', 'WY'), 'North West', NA))))))
+# Dissolve by regions
+usa_regions <- usa %>%
+  group_by(regions) %>%
+  summarise() %>%
+  st_cast('MULTIPOLYGON')
 
 # Open the NetCDF file
 nc <- nc_open(file.path(climate_dir, 'pr_gridMET.nc'))
@@ -143,9 +184,17 @@ precip_series <- setZ(precip_series, var_names)
 names(precip_series) <- as.character(var_names)
 
 # Create precipitation anomalies
-# This takes a while so go get some coffee!
-precip_anom <- calc(precip_series, anomaly)
-precip_anom <- setZ(precip_anom, var_names)
+# This takes a while so go get some coffee! 
+# Because this is so time/resources intensive we are going to write out the resulting time series
+if(!file.exists(file.path(processed_climate, 'precip_anom.tif'))) {
+  precip_anom <- calc(precip_series, anomaly)
+  precip_anom <- setZ(precip_anom, var_names)
+
+  writeRaster(precip_anom, filename = file.path(processed_climate, 'precip_anom.tif'), format = 'GTiff')
+
+  } else {
+    precip_anom <- raster::stack(file.path(processed_climate, 'precip_anom.tif'))
+  }
 ```
 
 Now that all of the data are processed, how do those time series look spatially and temporally ?
@@ -157,6 +206,7 @@ may_1979 <- raster_plot(input_series = precip_series, layer_number = 5,
 
 may_2017 <- raster_plot(input_series = precip_series, layer_number = 461, 
                         title = 'Precipitation for May 2017 (in mm)')
+grid.arrange(may_1979, may_2017, ncol = 1)
 ```
 You will notice that that there are differences in precipitation for the May months of 1979 and 2017, but this could be due to seasonality or external climatological forcings, like El Nino events. 
 
@@ -173,11 +223,44 @@ may_1979_anom <- raster_plot(input_series = precip_anom, layer_number = 5,
 
 may_2017_anom <- raster_plot(input_series = precip_anom, layer_number = 461, 
                         title = 'Precipitation anomalies for May 2017 (in mm)')
-grid.arrange(may_1979_anom, may_2017_anom, ncol=1)
+grid.arrange(may_1979_anom, may_2017_anom, ncol = 1)
 ```
 
 #### Precipitation anomalies from 1979-2017
 ```{r}
 hovmoller_plot(input_series = precip_anom, legend_range = seq(-5, 5, 0.5)) 
 ```
+
+From the comparisions it is clear that the precipitation anomalies are better at conveying precipitation trends across space and time. 
+
+#### Now lets extract the mean precipitation anomalies per region for just the summer months using a 3 year running mean.
+```{r}
+#Extract the median precipitation per state
+precip_mean_df <- velox(precip_anom)$extract(sp = usa_regions, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
+    as_tibble() 
+# Rename to the raster layer names
+colnames(precip_mean_df) <- c('ID_sp', names(precip_anom))
+# Clean up the dataframe and create a 2-year rolling average
+precip_roll_mean_df <- precip_mean_df %>%
+  mutate(regions = as.data.frame(usa_regions)$regions) %>%
+  gather(key = key, value = precip_mean, -ID_sp, -regions) %>%
+  separate(key,
+           into = c("months", 'year'),
+           sep = "\\.") %>%
+  mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year))),
+         mean_3yr =rollapply(precip_mean, 36, mean, align='center', fill=NA)) %>%
+  filter(months %in% c('May','June', 'July', 'August', 'September'))
+```
+
+```{r}
+precip_mean_p <- precip_roll_mean_df %>%
+  ggplot(aes(x = year_mon, y = mean_3yr, color = regions, group = regions)) +
+  geom_point() + 
+  geom_smooth() +
+  xlab("Year") + ylab("2-year running mean of precipitation anomalies") +
+  theme_pub() +  theme(legend.position = "none") + facet_wrap(~ regions)
+```
+
+
+
 
