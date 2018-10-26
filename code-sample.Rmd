@@ -64,7 +64,7 @@ download_data <- function(url, dir) {
 }
 
 ## Compute anomaly using monthly grouping with ave  
-anomaly <- function(series, month_names) {
+anomaly <- function(series, month_names = var_names) {
   ## Create a monthly climatology
   mm <- ave(series, month(month_names), FUN = mean)
   ## Monthly standard deviation across the climatology
