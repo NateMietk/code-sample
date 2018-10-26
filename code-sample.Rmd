@@ -1,5 +1,7 @@
 ---
-title: "code-sample"
+title: "Code example"
+author: Nathan Mietkiewicz, Ph.D.
+date: October 26, 2018
 output: pdf_document
 ---
 
@@ -163,6 +165,7 @@ usa_regions <- usa %>%
   group_by(regions) %>%
   summarise() %>%
   st_cast('MULTIPOLYGON')
+plot(usa_regions)
 
 # Open the NetCDF file
 nc <- nc_open(file.path(climate_dir, 'pr_gridMET.nc'))
@@ -185,11 +188,11 @@ names(precip_series) <- as.character(var_names)
 
 # Create precipitation anomalies
 # This takes a while so go get some coffee! 
-# Because this is so time/resources intensive we are going to write out the resulting time series
 if(!file.exists(file.path(processed_climate, 'precip_anom.tif'))) {
   precip_anom <- calc(precip_series, anomaly)
   precip_anom <- setZ(precip_anom, var_names)
 
+  # Because this is so time/resources intensive we are going to write out the resulting time series
   writeRaster(precip_anom, filename = file.path(processed_climate, 'precip_anom.tif'), format = 'GTiff')
 
   } else {
@@ -250,6 +253,7 @@ precip_roll_mean_df <- precip_mean_df %>%
   mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year))),
          mean_3yr =rollapply(precip_mean, 36, mean, align='center', fill=NA)) %>%
   filter(months %in% c('May','June', 'July', 'August', 'September'))
+head(precip_roll_mean_df)
 ```
 
 ```{r}
@@ -259,6 +263,7 @@ precip_mean_p <- precip_roll_mean_df %>%
   geom_smooth() +
   xlab("Year") + ylab("2-year running mean of precipitation anomalies") +
   theme_pub() +  theme(legend.position = "none") + facet_wrap(~ regions)
+precip_mean_p
 ```
 
 
