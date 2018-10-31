@@ -1,6 +1,6 @@
 ---
 layout: single 
-title: "Visualizing hourly traffic crime data for Denver, Colorado using R, dplyr, and ggplot"
+title: ""
 date: 2018-10-29 
 authors: [Nathan Mietkiewicz] 
 category: [tutorials] 
@@ -14,7 +14,7 @@ lib: [dplyr, ggplot2, lubridate, viridis, RCurl]
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE, fig.align="center")
 ```
 
 ## General outline
@@ -22,7 +22,7 @@ This code sample is intended to be a reproducible example of downloading, proces
 
 First we need to setup our environment
 
-```{r results='hide', message=FALSE, warning=FALSE}
+```{r results='hide'}
 packages <- c("tidyverse", "magrittr", "raster", "RCurl", "sf", "assertthat", 'lubridate', 'ncdf4', 'snow', 'remote',
               'RColorBrewer', 'rasterVis', 'zoo', 'gridExtra', 'velox')
 if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
@@ -38,7 +38,7 @@ if (length(setdiff(packages, rownames(installed.packages()))) > 0) {
 
 Now lets create some folders to store our raw and processed data in...
 
-```{r results='hide', message=FALSE, warning=FALSE}
+```{r results='hide'}
 prefix <- "data"
 raw_dir <- file.path(prefix, "raw")
 us_dir <- file.path(raw_dir, "cb_2016_us_state_20m")
@@ -57,7 +57,7 @@ Let's define some small functions that we can call to make things more efficient
 ```{r}
 # Create some simple functions to use later in the code
 
-# Download the data
+# A function to download the data
 download_data <- function(url, dir) {
   # because some files have a 'zip' extension while others dont we have to automatically use the native extension
   file_extension <- url %>%
@@ -76,8 +76,7 @@ download_data <- function(url, dir) {
   }
 }
 
-# We will be doing some plotting, so here we can define our base plots
-# A function for our simple spatial plot
+# A function to plot our raster data
 raster_plot <- function(input_series, layout_vals, title) {
   rasterVis::levelplot(input_series,
                         layout = layout_vals,
@@ -91,23 +90,12 @@ raster_plot <- function(input_series, layout_vals, title) {
   layer(sp.polygons(as(study_area, 'Spatial'), lwd = 2)) # Overlay the usa states
 }
 
-# A function that defines our hovmoller plot
-hovmoller_plot <- function(input_series) {
-  max <-  max(maxValue(input_series))
-  min <- min(minValue(input_series))
-  interval <- (max-min)/10
-  
-  hovmoller(input_series,
-          at = do.breaks(c(min, max), interval),
-          contour=F, interpolate=F,
-          par.settings = BuRdTheme)
-}
-
 # Creating anomalies
 anom_fun <- function(x, y) {
   (x - y)
 }
 
+# Adding names to each layer in the raster stack 
 set_names <- function(x, start_date, end_date) {
   idx <- seq(as.Date(start_date), as.Date(end_date), by='month')
   var_names <- as.yearmon(idx)
@@ -115,6 +103,7 @@ set_names <- function(x, start_date, end_date) {
   names(x) <- as.character(var_names) # name the layers based on the month/year combination
   return(x)
 }
+
 
 get_months <- function(start_date, end_date) {
   idx <- seq(as.Date(start_date), as.Date(end_date), by='month')
@@ -133,6 +122,7 @@ get_residuals <- function(x) {
   }
 }
 
+# A small function to classify our dates into seasons
 classify_seasons <-  function(x) {
 ifelse(x == 'Dec' | x == 'Jan' | x == 'Feb', "Winter",
        ifelse(x == 'Mar' | x == 'Apr' | x == 'May', "Spring",
@@ -140,7 +130,7 @@ ifelse(x == 'Dec' | x == 'Jan' | x == 'Feb', "Winter",
                      "Fall")))
 }
   
-# Theme for plotting our time series in ggplot
+# Theme for plotting our time series in ggplot2
 theme_pub <- function(base_size=11, base_family="") {
   library(grid)
   library(ggthemes)
@@ -168,29 +158,31 @@ theme_pub <- function(base_size=11, base_family="") {
             axis.title = element_text(size = 11),
             axis.text.x = element_text(size = 10, angle = 65, hjust = 1),
             axis.text.y = element_text(size = 11)))
+}
 
+# A theme to plot vector maps through ggplot2
 theme_map <- function(...) {
-theme_minimal(base_size=10) +
-  theme(
-    text = element_text(family = "", color = "#22211d"),
-    axis.line = element_blank(),
-    axis.text.x = element_blank(),
-    axis.text.y = element_blank(),
-    axis.ticks = element_blank(),
-    axis.title.x = element_blank(),
-    axis.title.y = element_blank(),
-    # panel.grid.minor = element_line(color = "#ebebe5", size = 0.2),
-    panel.grid.major = element_line(color = "transparent", size = 0.2),
-    panel.grid.minor = element_blank(),
-    plot.background = element_blank(),
-    panel.grid = element_blank(),
-    panel.background = element_blank(),
-    legend.background = element_blank(),
-    panel.border = element_blank(),
-    ...
-  )
+  theme_minimal(base_size=10) +
+    theme(
+      text = element_text(family = "", color = "#22211d"),
+      axis.line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.ticks = element_blank(),
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+  
+      panel.grid.major = element_line(color = "transparent", size = 0.2),
+      panel.grid.minor = element_blank(),
+      plot.background = element_blank(),
+      panel.grid = element_blank(),
+      panel.background = element_blank(),
+      legend.background = element_blank(),
+      panel.border = element_blank(),
+      ...
+    )
 }
-}
+
 ```
 
 Now we can download the two data sets needed for this analysis
@@ -221,7 +213,7 @@ Now that the data has been downloaded let's start processing!
 
 First, we are going to define our study area.  To do this we are going to manipulate the USA state shapefile that we downloaded previously.  We first need to transform our spatial coordinate system to match the raster data. Doing this tranformation on the vector file is much faster and more accurate than trying to reproject our raster time series.  We defined the spatial projection earlier as WGS 84 (lat/long). We then want to make sure we just have the lower 48 states.  For our final analysis we are going to look at regional variations in the data so we define those regions here.  Because the `sf` object plays nicely with the `tidyverse` all of these dataframe manipulations are as easy on a spatial dataframe as they would be on a non-spatial dataframe.  This is a huge improvement and difference compared to using the `sp` package for vector shapefiles. Using the `dply::group_by` function we can dissolve our polygons based on an attribute.  In this case we can dissolve by our defined regions to remove state boundaries.
 
-```{r echo = FALSE}
+```{r}
 # Define our spatial projection
 proj <- "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs +towgs84=0,0,0"
 # Opening and cleaning the states layer
@@ -237,6 +229,8 @@ ecoregions <- sf::st_read(file.path(ecoregion_dir, "NA_CEC_Eco_Level1.shp"), qui
   dplyr::select(NA_L1NAME) %>%
   rename_all(tolower) %>% # rename all fields to lowercase for ease of coding later
   st_intersection(., st_union(study_area)) %>%
+  group_by(na_l1name) %>% 
+  summarise %>%
   st_cast('MULTIPOLYGON')
 
 ggplot() +
@@ -249,6 +243,7 @@ ggplot() +
 
 Now that we have our study area defined and prepped, we are going to import the precipitation data.  These data are in NetCDF format, which is simply a multidimensional data file.  Contained within this one NetCDF file is the attribute (x), space (y), and time (z) components of this time series. They are highly compressible and easily distributed.  This particular NetCDF cannot be read in through the `raster` package, but the majority of NetCDFs can be read in throug the `raster` package, so we are going to use the `ncdf4` package to accomplish this import task.   
 Upon importing, NetCDFs are notorius for inverted dimensions, which can make the import seem like it has failed. For instance, if we were to import the precipitation data and plot the first time step (Jan 1979) this is the resulting raster would look like...
+
 ``` {r}
 # Open the NetCDF file
 nc <- nc_open(file.path(climate_dir, 'pr_gridMET.nc'))
@@ -275,7 +270,7 @@ precip_series <- precip_series %>%
 # Set the names of the raster stack 
 precip_series <- set_names(precip_series, '1979-01-01', '2017-12-01')
 
-raster_plot(input_series = precip_series[[457:468]], layout_vals = c(4,3),  title = 'Raw (mm)')
+raster_plot(input_series = precip_series[[457:468]], layout_vals = c(4,3),  title = 'Raw precipitation (mm)')
 ```
 
 We know that there is inherent seasonality within our precipitation data.  One way to remove the seasonality is to detrend the time series.  To accomplish this we can simply extract the residuals from a linear regression between the series (the dependent variable) and time (the independent variable).
@@ -285,7 +280,7 @@ time <- 1:nlayers(precip_series) # Create our independent variable
 detrended_precip <- calc(precip_series, get_residuals) # Create our residual (detrended) time series stack
 detrended_precip <- set_names(detrended_precip, '1979-01-01', '2017-12-01')
 
-raster_plot(input_series = detrended_precip[[457:468]], layout_vals = c(4,3), title = 'Detrended')
+raster_plot(input_series = detrended_precip[[457:468]], layout_vals = c(4,3), title = 'Detrended precipitation')
 ```
 
 Ok, so now that we have created our detrened precipitation time series, let's create our precipitation anomalies using those detrended data.
@@ -302,7 +297,7 @@ raster_plot(input_series = mean_climatology, layout_vals = c(4,3), title = 'Mean
 # Create precipitation anomalies
 precip_anom <- overlay(x = detrended_precip, y = mean_climatology, fun = anom_fun)
 precip_anom <- set_names(precip_anom, '1979-01-01', '2017-12-01')
-raster_plot(input_series = precip_anom[[457:468]], layout_vals = c(4,3), title = 'Precipitation Anomalies')
+raster_plot(input_series = precip_anom[[457:468]], layout_vals = c(4,3), title = 'Precipitation anomalies')
 ```
 
 Now that all of the data are processed, how do those time series look spatially and temporally?
@@ -315,22 +310,16 @@ raster_plot(input_series = may_stack, layout_vals = c(3,2), title = 'Raw (1), De
 ```
 
 ```{r}
-hovmoller_plot(input_series = precip_anom) 
 horizonplot(precip_anom, ylab="Latitude", xlab="Time",col.regions=(brewer.pal(n=6, 'RdBu')) )
-
 ```
 
 
-From the comparisons it is clear that the precipitation anomalies are better at conveying precipitation trends across space and time. 
-
-#### Now lets extract the mean precipitation anomalies per region for just the summer months using a 2-year running mean.
-
-```{r}
+```{r fig.width = 10}
 #Extract the mean precipitation per state
-precip_co <- velox(precip_anom)$extract(sp = study_area, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
+precip_co <- velox(detrended_precip)$extract(sp = study_area, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
     as_tibble() 
 # Rename to the raster layer names
-colnames(precip_co) <- c('ID_sp', names(precip_anom))
+colnames(precip_co) <- c('ID_sp', names(detrended_precip))
 # Clean up the dataframe and create a 2-year rolling average
 precip_co %>%
   mutate(stusps = as.data.frame(study_area)$stusps) %>%
@@ -338,20 +327,48 @@ precip_co %>%
   separate(key,
            into = c("months", 'year'),
            sep = "\\.") %>%
-  mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year))),
-         seasons = classify_seasons(months)) %>%
-  ggplot(aes(x = year_mon, y = precip_mean, group = factor(seasons), color = factor(seasons))) +
-  geom_smooth(method = lm, formula = y ~ splines::bs(x, 3)) +
-  xlab("Year") + ylab("Precipitation anomalies (mm)") +
-  scale_color_manual(values = c("Winter" = "#1F77B4", 
-                                "Spring" = "#2CA02C", 
-                                "Summer" =  "#D62728", 
-                                "Fall" = "#FF7F0E"), 
-                     name="Season") +
+  mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year)))) %>%
+  dplyr::select(year_mon, precip_mean) %>%
+  arrange(year_mon) %>%
+  mutate(yearly_mean = rollmean(precip_mean, 12, align='right', fill = NA )) %>%
+  ggplot(aes(x = year_mon, y = yearly_mean)) +
+  geom_line() +
+  geom_smooth(method = lm, formula = y ~ splines::bs(x, 30), se = FALSE, color = 'red') +
+  xlab("Year") + ylab("Detrended precipitation (mm)") +
   theme_pub() 
 ```
 
-```{r}
+
+```{r fig.width = 10}
+#Extract the mean precipitation per state
+precip_eco <- velox(detrended_precip)$extract(sp = ecoregions, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
+    as_tibble() 
+# Rename to the raster layer names
+colnames(precip_eco) <- c('ID_sp', names(detrended_precip))
+
+# Clean up the dataframe and create a 2-year rolling average
+precip_eco %>%
+  mutate(na_l1name = as.data.frame(ecoregions)$na_l1name) %>%
+  gather(key = key, value = precip_mean, -ID_sp, -na_l1name) %>%
+  separate(key,
+           into = c("months", 'year'),
+           sep = "\\.") %>%
+  mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year)))) %>%
+  dplyr::select(na_l1name, year_mon, precip_mean) %>%
+  arrange(na_l1name, year_mon) %>%
+  group_by(na_l1name) %>%
+  mutate(yearly_mean = rollmean(precip_mean, 12, align='right', fill = NA )) %>%
+  ggplot(aes(x = year_mon, y = yearly_mean, group = na_l1name, color = na_l1name)) +
+  geom_line() +
+  geom_smooth(method = lm, formula = y ~ splines::bs(x, 30), se = FALSE) +
+  xlab("Year") + ylab("Detrended precipitation (mm)") +
+  theme_pub() +  
+  theme(legend.position = 'top',
+        legend.direction = "horizontal")
+```
+
+
+```{r fig.width=7.5, fig.height=9}
 #Extract the mean precipitation per state
 precip_ecoregions <- velox(precip_anom)$extract(sp = ecoregions, fun = function(x) mean(x, na.rm = TRUE), df = TRUE) %>%
     as_tibble() 
@@ -365,15 +382,23 @@ precip_ecoregions %>%
            into = c("months", 'year'),
            sep = "\\.") %>%
   mutate(year_mon = as.Date(as.yearmon(paste0(months, ' ', year))),
-         seasons = classify_seasons(months)) %>%
-  ggplot(aes(x = year_mon, y = precip_mean, group = factor(seasons), color = factor(seasons))) +
-  geom_smooth(method = lm, formula = y ~ splines::bs(x, 3)) +
-  xlab("Year") + ylab("2-year running mean of precipitation anomalies") +
+         seasons = as.factor(classify_seasons(months))) %>%
+  dplyr::select(na_l1name, seasons, year_mon, precip_mean) %>%
+  arrange(na_l1name, seasons, year_mon) %>%
+  group_by(na_l1name, seasons) %>%
+  mutate(yearly_mean = rollmean(precip_mean, 12, align='right', fill = NA )) %>%
+  ggplot(aes(x = year_mon, y = yearly_mean, group = factor(seasons), color = factor(seasons))) +
+  geom_smooth(method = lm, formula = y ~ splines::bs(x, 30)) +
+  geom_hline(yintercept = 0, color = 'black')  +
+  xlab("Year") + ylab("Precipitation anomalies (mm)") +
   scale_color_manual(values = c("Winter" = "#1F77B4", 
                                 "Spring" = "#2CA02C", 
                                 "Summer" =  "#D62728", 
                                 "Fall" = "#FF7F0E"), 
                      name="Season") +
   theme_pub() +  
-  facet_wrap(~na_l1name, labeller = labeller(na_l1name = label_wrap_gen(width = 10)))
+  theme(legend.position = 'top',
+        legend.direction = "horizontal") +  
+  facet_wrap(~na_l1name, ncol = 1)
 ```
+
