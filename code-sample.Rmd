@@ -1,16 +1,25 @@
 ---
-layout: single 
-title: ""
-date: 2018-10-29 
-authors: [Nathan Mietkiewicz] 
-category: [tutorials] 
-excerpt: 'This tutorial demonstrates how to access, manipulate, and visualiztion raster time series.' 
-sidebar: 
-nav: 
-author_profile: false 
-comments: true 
-lang: [r]
-lib: [dplyr, ggplot2, lubridate, viridis, RCurl]
+title: ''
+authors: Nathan Mietkiewicz
+date: '2018-10-29'
+output:
+  html_document:
+    df_print: paged
+category: tutorials
+excerpt: This tutorial demonstrates how to access, manipulate, and visualiztion raster
+  time series.
+lang: r
+layout: single
+lib:
+- dplyr
+- ggplot2
+- lubridate
+- viridis
+- RCurl
+nav: null
+comments: yes
+sidebar: null
+author_profile: no
 ---
 
 ```{r setup, include=FALSE}
